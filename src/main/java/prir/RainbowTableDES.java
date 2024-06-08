@@ -23,12 +23,10 @@ public class RainbowTableDES {
             g - generate (generuje hasła najpierw i zapisuje do pliku
             s - skip (nie generuje)
         2.
-            długość hasła
+            hasło plain tekst
         3.
-            liczba wierszy
+            wszystkie hasła
         4.
-            liczba kolumn
-        5.
             liczba wątków
     */
 
@@ -40,6 +38,7 @@ public class RainbowTableDES {
     private static final SecretKey key;
     private static final RandomPasswordGenerator passwordGenerator = new RandomPasswordGenerator();
     private static int passwordLength = 5;
+    private static String PLAINTEXT = "abceh";
 
     static {
         try {
@@ -51,10 +50,11 @@ public class RainbowTableDES {
 
     public static void main(String[] args) throws Exception {
         if (args.length > 1) {
-            passwordLength = Integer.parseInt(args[1]);
-            TABLE_SIZE = Integer.parseInt(args[2]);
-            CHAIN_LENGTH = Integer.parseInt(args[3]);
-            THREAD_COUNT = Integer.parseInt(args[4]);
+            passwordLength = args[1].length();
+            TABLE_SIZE = Integer.parseInt(args[3]);
+            CHAIN_LENGTH = Integer.parseInt(args[2]) / TABLE_SIZE;
+            THREAD_COUNT = Integer.parseInt(args[3]);
+            PLAINTEXT = args[1];
             if (args[0].equals("g")) {
                 passwordGenerator.generateRandomPasswordList(passwordLength, TABLE_SIZE, "generated_passwords.txt", THREAD_COUNT);
             }
@@ -66,16 +66,16 @@ public class RainbowTableDES {
         long endTime = System.currentTimeMillis();
         System.out.println("Time taken: " + (endTime - startTime) + " ms");
 
-        // Example of usage
-        String plainText = "abcehgno";
-        String cipherText = rainbowTableDES.encrypt(plainText);
+        String cipherText = rainbowTableDES.encrypt(PLAINTEXT);
 
         startTime = System.currentTimeMillis();
         String decryptedText = rainbowTableDES.lookup(cipherText);
         endTime = System.currentTimeMillis();
         System.out.println("Time taken: " + (endTime - startTime) + " ms");
 
+        System.out.println("Plaintext: " + PLAINTEXT);
         System.out.println("CipherText: " + cipherText);
+        System.out.println("Key: " + bytesToHex(key.getEncoded()));
         if (decryptedText == null) {
             System.out.println("Nie znaleziono hasła!");
         } else {
@@ -86,37 +86,33 @@ public class RainbowTableDES {
     public void generateRainbowTable(String rainbowTableFile, String passwordsFile) {
         class GenerateThread extends Thread {
             private final int start;
-            private final int end;
             private final BufferedWriter rainbowWriter;
             private final List<String> firstColumn;
 
-            public GenerateThread(int start, int end, List<String> firstColumn, BufferedWriter rainbowWriter) {
+            public GenerateThread(int start, List<String> firstColumn, BufferedWriter rainbowWriter) {
                 this.start = start;
-                this.end = end;
                 this.firstColumn = firstColumn;
                 this.rainbowWriter = rainbowWriter;
             }
 
             @Override
             public void run() {
-                for (int i = start; i < end; i++) {
-                    int finalI = i;
-                    try {
-                        String startPlainText = firstColumn.get(finalI);
-                        String endPlainText = startPlainText;
-                        String cipherText = null;
+                int finalI = start;
+                try {
+                    String startPlainText = firstColumn.get(finalI);
+                    String endPlainText = startPlainText;
+                    String cipherText = null;
 
-                        for (int j = 0; j < CHAIN_LENGTH; j++) {
-                            cipherText = encrypt(endPlainText);
-                            endPlainText = reduce(cipherText, j);
-                        }
-                        synchronized (rainbowWriter) {
-                            rainbowWriter.write(startPlainText + " -> ... -> " + endPlainText + "\n");
-                        }
-                        rainbowTable.put(startPlainText, endPlainText);
-                    } catch (Exception e) {
-                        e.printStackTrace();
+                    for (int j = 0; j < CHAIN_LENGTH; j++) {
+                        cipherText = encrypt(endPlainText);
+                        endPlainText = reduce(cipherText, j);
                     }
+                    synchronized (rainbowWriter) {
+                        rainbowWriter.write(startPlainText + " -> ... -> " + endPlainText + "\n");
+                    }
+                    rainbowTable.put(startPlainText, endPlainText);
+                } catch (Exception e) {
+                    e.printStackTrace();
                 }
             }
         }
@@ -129,13 +125,11 @@ public class RainbowTableDES {
                 firstColumn.add(line);
             }
 
-            int chunkSize = (int) Math.ceil((double) TABLE_SIZE / THREAD_COUNT);
             GenerateThread[] threads = new GenerateThread[THREAD_COUNT];
 
             for (int i = 0; i < THREAD_COUNT; i++) {
-                int start = i * chunkSize;
-                int end = Math.min(start + chunkSize, TABLE_SIZE);
-                threads[i] = new GenerateThread(start, end, firstColumn, rainbowWriter);
+                int start = i;
+                threads[i] = new GenerateThread(start, firstColumn, rainbowWriter);
                 threads[i].start();
             }
 
@@ -160,13 +154,21 @@ public class RainbowTableDES {
     }
 
     private String reduce(String cipherText, int round) {
-        int length = 2; // length of the password
-        StringBuilder reduced = new StringBuilder(length);
-        for (int i = 0; i < length; i++) {
-            int charIndex = (cipherText.charAt(i % cipherText.length()) + round) % 3;
-            reduced.append("abc".charAt(charIndex));
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hashBytes = md.digest((cipherText + round).getBytes());
+
+            StringBuilder reduced = new StringBuilder();
+            String characters = "abcdefghijklmnoprstuvwxyz";
+            for (int i = 0; i < passwordLength; i++) {
+                int charIndex = (hashBytes[i] & 0xFF) % characters.length();
+                reduced.append(characters.charAt(charIndex));
+            }
+
+            return reduced.toString();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
         }
-        return reduced.toString();
     }
 
     public String lookup(String cipherText) {
