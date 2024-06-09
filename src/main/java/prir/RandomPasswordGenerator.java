@@ -14,10 +14,9 @@ public class RandomPasswordGenerator {
     private final Random random = new Random();
 
     public String generateRandomPassword(int len) {
-        int length = len; // length of the password
-        String characters = "abcdefghijklmnoprstuvwxyz";
-        StringBuilder password = new StringBuilder(length);
-        for (int i = 0; i < length; i++) {
+        String characters = RainbowTableDES.ALPHABET;
+        StringBuilder password = new StringBuilder(len);
+        for (int i = 0; i < len; i++) {
             password.append(characters.charAt(random.nextInt(characters.length())));
         }
         return password.toString();
@@ -29,7 +28,7 @@ public class RandomPasswordGenerator {
             String startPlainText = generateRandomPassword(passwordLength);
             set.add(startPlainText);
         } while (set.size() != TABLE_SIZE);
-        System.out.println("Wyszedłem z while");
+//        System.out.println("Wyszedłem z while");
         List<String> firstColumn = set.stream().toList();
         ExecutorService executor = Executors.newFixedThreadPool(THREAD_COUNT);
 

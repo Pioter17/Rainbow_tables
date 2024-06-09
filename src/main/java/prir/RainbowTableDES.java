@@ -8,37 +8,33 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.Random;
-
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 
 public class RainbowTableDES {
 
     //  argumenty
     /*  1.
             g - generate (generuje hasła najpierw i zapisuje do pliku
-            s - skip (nie generuje)
+            s - skip (nie generuje - czyta z pliku passwords.txt)
         2.
-            hasło plain tekst
+            haslo do znalezienia (plain text)
         3.
-            wszystkie hasła
+            liczba wierszy
         4.
+            liczba kolumn
+        5.
             liczba wątków
     */
 
     private static final String ALGORITHM = "DES";
-    private static int TABLE_SIZE = 2000; // Increased size for better coverage
-    private static int CHAIN_LENGTH = 10000; // Increased chain length
+    public static int TABLE_SIZE = 2000;
+    public static int CHAIN_LENGTH = 10000;
     private static int THREAD_COUNT = 4; // Number of threads to use
+    private static String PLAINTEXT = "abceh";
     private final ConcurrentHashMap<String, String> rainbowTable = new ConcurrentHashMap<>();
     private static final SecretKey key;
     private static final RandomPasswordGenerator passwordGenerator = new RandomPasswordGenerator();
-    private static int passwordLength = 5;
-    private static String PLAINTEXT = "abceh";
+    public static int passwordLength = 5;
+    public static String ALPHABET = "password";
 
     static {
         try {
@@ -50,72 +46,44 @@ public class RainbowTableDES {
 
     public static void main(String[] args) throws Exception {
         if (args.length > 1) {
-            passwordLength = args[1].length();
-            TABLE_SIZE = Integer.parseInt(args[3]);
-            CHAIN_LENGTH = Integer.parseInt(args[2]) / TABLE_SIZE;
-            THREAD_COUNT = Integer.parseInt(args[3]);
             PLAINTEXT = args[1];
+            passwordLength = args[1].length();
+            TABLE_SIZE = Integer.parseInt(args[2]);
+            CHAIN_LENGTH = Integer.parseInt(args[3]);
+            THREAD_COUNT = Integer.parseInt(args[4]);
             if (args[0].equals("g")) {
-                passwordGenerator.generateRandomPasswordList(passwordLength, TABLE_SIZE, "generated_passwords.txt", THREAD_COUNT);
+                passwordGenerator.generateRandomPasswordList(passwordLength, TABLE_SIZE, "passwords.txt", THREAD_COUNT);
             }
         }
+        System.out.println("Łamanie haseł używając tablic tęczowych");
+        System.out.println("Tablica dla hasel " + passwordLength + " znakowych");
+        System.out.println("Dozwolony alfabet to " + ALPHABET);
 
         RainbowTableDES rainbowTableDES = new RainbowTableDES();
         long startTime = System.currentTimeMillis();
-        rainbowTableDES.generateRainbowTable("rainbow_table.txt", "generated_passwords.txt");
+        rainbowTableDES.generateRainbowTable("rainbow_table.txt", "passwords.txt");
         long endTime = System.currentTimeMillis();
-        System.out.println("Time taken: " + (endTime - startTime) + " ms");
+        System.out.println("Czas generowania tablicy: " + (endTime - startTime) + " ms");
 
-        String cipherText = rainbowTableDES.encrypt(PLAINTEXT);
+        // Example of usage
+//        String plainText = "abbaac";
+//        System.out.println("zahashowany plain text(cipher text): " + encrypt(plainText));
+        String cipherText = encrypt(PLAINTEXT);
 
         startTime = System.currentTimeMillis();
         String decryptedText = rainbowTableDES.lookup(cipherText);
         endTime = System.currentTimeMillis();
-        System.out.println("Time taken: " + (endTime - startTime) + " ms");
+        System.out.println("Czas przeszukiwania tablicy: " + (endTime - startTime) + " ms");
 
-        System.out.println("Plaintext: " + PLAINTEXT);
-        System.out.println("CipherText: " + cipherText);
-        System.out.println("Key: " + bytesToHex(key.getEncoded()));
         if (decryptedText == null) {
             System.out.println("Nie znaleziono hasła!");
         } else {
-            System.out.println("Decrypted Text: " + decryptedText);
+            System.out.println("Haslo zostalo znalezione!");
+            System.out.println("Znalezione hasło: " + decryptedText);
         }
     }
 
     public void generateRainbowTable(String rainbowTableFile, String passwordsFile) {
-        class GenerateThread extends Thread {
-            private final int start;
-            private final BufferedWriter rainbowWriter;
-            private final List<String> firstColumn;
-
-            public GenerateThread(int start, List<String> firstColumn, BufferedWriter rainbowWriter) {
-                this.start = start;
-                this.firstColumn = firstColumn;
-                this.rainbowWriter = rainbowWriter;
-            }
-
-            @Override
-            public void run() {
-                int finalI = start;
-                try {
-                    String startPlainText = firstColumn.get(finalI);
-                    String endPlainText = startPlainText;
-                    String cipherText = null;
-
-                    for (int j = 0; j < CHAIN_LENGTH; j++) {
-                        cipherText = encrypt(endPlainText);
-                        endPlainText = reduce(cipherText, j);
-                    }
-                    synchronized (rainbowWriter) {
-                        rainbowWriter.write(startPlainText + " -> ... -> " + endPlainText + "\n");
-                    }
-                    rainbowTable.put(startPlainText, endPlainText);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-        }
         try (BufferedWriter rainbowWriter = new BufferedWriter(new FileWriter(rainbowTableFile));
              BufferedReader passwordReader = new BufferedReader(new FileReader(passwordsFile))) {
 
@@ -125,11 +93,13 @@ public class RainbowTableDES {
                 firstColumn.add(line);
             }
 
+            int chunkSize = (int) Math.ceil((double) TABLE_SIZE / THREAD_COUNT);
             GenerateThread[] threads = new GenerateThread[THREAD_COUNT];
 
             for (int i = 0; i < THREAD_COUNT; i++) {
-                int start = i;
-                threads[i] = new GenerateThread(start, firstColumn, rainbowWriter);
+                int start = i * chunkSize;
+                int end = Math.min(start + chunkSize, TABLE_SIZE);
+                threads[i] = new GenerateThread(start, end, firstColumn, rainbowWriter, rainbowTable);
                 threads[i].start();
             }
 
@@ -137,109 +107,84 @@ public class RainbowTableDES {
                 try {
                     thread.join();
                 } catch (InterruptedException e) {
+                    System.err.println("Wystąpił błąd podczas joinowania wątków!");
                     e.printStackTrace();
                 }
             }
         } catch (IOException e) {
+            System.err.println("Wystąpił błąd z dostępem do pliku!");
             e.printStackTrace();
         }
     }
 
-    public String encrypt(String plainText) throws Exception {
 
+    public static String encrypt(String plainText) throws Exception {
         Cipher cipher = Cipher.getInstance(ALGORITHM);
         cipher.init(Cipher.ENCRYPT_MODE, key);
         byte[] encrypted = cipher.doFinal(plainText.getBytes());
         return bytesToHex(encrypted);
     }
 
-    private String reduce(String cipherText, int round) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] hashBytes = md.digest((cipherText + round).getBytes());
-
-            StringBuilder reduced = new StringBuilder();
-            String characters = "abcdefghijklmnoprstuvwxyz";
-            for (int i = 0; i < passwordLength; i++) {
-                int charIndex = (hashBytes[i] & 0xFF) % characters.length();
-                reduced.append(characters.charAt(charIndex));
-            }
-
-            return reduced.toString();
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
+    public static String reduce(String cipherText, int round) {
+        int length = passwordLength;
+        int alphabetLength = ALPHABET.length();
+        StringBuilder reduced = new StringBuilder(length);
+        for (int i = 0; i < length; i++) {
+            int charIndex = (cipherText.charAt(i % cipherText.length()) + round) % alphabetLength;
+            reduced.append(ALPHABET.charAt(charIndex));
         }
+        return reduced.toString();
     }
 
-    public String lookup(String cipherText) {
-        class LookupThread extends Thread {
-            private final List<String> keys;
-            private String result = null;
-
-            public LookupThread(List<String> keys) {
-                this.keys = keys;
-            }
-
-            public String getResult() {
-                return result;
-            }
-
-            @Override
-            public void run() {
-                for (String key : keys) {
-                    int i = CHAIN_LENGTH - 1;
-                    String currentText = cipherText;
-                    do {
-                        currentText = reduce(currentText, i);
-                        if (rainbowTable.containsValue(currentText)) {
-                            int finalI = i;
-                            if (rainbowTable.get(key).equals(currentText)) {
-                                currentText = key;
-                                for (int z = 0; z < finalI; z++) {
-                                    try {
-                                        currentText = encrypt(currentText);
-                                    } catch (Exception e) {
-                                        e.printStackTrace();
-                                    }
-                                    currentText = reduce(currentText, z);
-                                }
-                                result = currentText;
-                                return;
-                            }
-                        }
-                        try {
-                            currentText = encrypt(currentText);
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
-                        i--;
-                    } while (i >= 0);
-                }
-            }
-        }
-
+    public String lookup(String cipherText) throws Exception {
         List<String> keys = new ArrayList<>(rainbowTable.keySet());
         int chunkSize = (int) Math.ceil((double) keys.size() / THREAD_COUNT);
-        LookupThread[] threads = new LookupThread[THREAD_COUNT];
+        String lookupText;
 
-        for (int i = 0; i < THREAD_COUNT; i++) {
-            int start = i * chunkSize;
-            int end = Math.min(start + chunkSize, keys.size());
-            threads[i] = new LookupThread(keys.subList(start, end));
-            threads[i].start();
-        }
-
-        for (LookupThread thread : threads) {
-            try {
-                thread.join();
-            } catch (InterruptedException e) {
-                e.printStackTrace();
+        for(int i = CHAIN_LENGTH - 1; i >= 0; i--) {
+            lookupText = cipherText;
+            for(int j = i + 1; j < CHAIN_LENGTH; j++) {
+                lookupText = reduce(lookupText, j - 1);
+                lookupText = encrypt(lookupText);
             }
-        }
+            lookupText = reduce(lookupText, CHAIN_LENGTH - 1);
 
-        for (LookupThread thread : threads) {
-            if (thread.getResult() != null) {
-                return thread.getResult();
+            LookupThread[] threads = new LookupThread[THREAD_COUNT];
+            for (int c = 0; c < THREAD_COUNT; c++) {
+                int start = c * chunkSize;
+                int end = Math.min(start + chunkSize, keys.size());
+                threads[c] = new LookupThread(keys.subList(start, end), lookupText, rainbowTable);
+                threads[c].start();
+            }
+
+            for (LookupThread thread : threads) {
+                try {
+//                    System.out.println("Joinuje watek: " + thread.threadId());
+                    thread.join();
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+
+            for (LookupThread thread : threads) {
+//                System.out.println("Sprawdzam result od threadu: " + thread.threadId());
+                if (thread.getResult() != null) {
+//                    System.out.println("Sprawdzam result od threadu: " + thread.threadId() + "I ZNALAZLEM " + thread.getResult());
+                    String threadResult = thread.getResult();
+//                    System.out.println("Znalazlem result: " + threadResult);
+
+                    String[] currentText = new String[2];
+                    currentText[0] = threadResult;
+                    currentText[1] = encrypt(threadResult);
+
+                    for(int k = 0; k < CHAIN_LENGTH; k++) {
+                        if(currentText[1].equals(cipherText)) {
+                            return currentText[0];
+                        }
+                        currentText[0] = reduce(currentText[1], k);
+                        currentText[1] = encrypt(currentText[0]);
+                    }
+                }
             }
         }
         return null;
