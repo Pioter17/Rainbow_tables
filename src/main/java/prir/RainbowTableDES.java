@@ -34,7 +34,7 @@ public class RainbowTableDES {
     private static final SecretKey key;
     private static final RandomPasswordGenerator passwordGenerator = new RandomPasswordGenerator();
     public static int passwordLength = 5;
-    public static String ALPHABET = "password";
+    public static String ALPHABET = "abcdefghijklmnoprstuvwxyzq";
 
     static {
         try {
@@ -170,19 +170,24 @@ public class RainbowTableDES {
 //                System.out.println("Sprawdzam result od threadu: " + thread.threadId());
                 if (thread.getResult() != null) {
 //                    System.out.println("Sprawdzam result od threadu: " + thread.threadId() + "I ZNALAZLEM " + thread.getResult());
-                    String threadResult = thread.getResult();
+                    List<String> threadResults = thread.getResult();
 //                    System.out.println("Znalazlem result: " + threadResult);
 
                     String[] currentText = new String[2];
-                    currentText[0] = threadResult;
-                    currentText[1] = encrypt(threadResult);
+                    for (String result : threadResults) {
+                        currentText[0] = result;
+                        currentText[1] = encrypt(result);
 
-                    for(int k = 0; k < CHAIN_LENGTH; k++) {
-                        if(currentText[1].equals(cipherText)) {
-                            return currentText[0];
+                        for(int k = 0; k < CHAIN_LENGTH; k++) {
+//                            if (k == 0) {
+//                                System.out.println("i= " + i + ", wątek= " + thread.threadId() + ", plain jakiś " + currentText[0]);
+//                            }
+                            if(currentText[1].equals(cipherText)) {
+                                return currentText[0];
+                            }
+                            currentText[0] = reduce(currentText[1], k);
+                            currentText[1] = encrypt(currentText[0]);
                         }
-                        currentText[0] = reduce(currentText[1], k);
-                        currentText[1] = encrypt(currentText[0]);
                     }
                 }
             }

@@ -1,12 +1,13 @@
 package prir;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class LookupThread extends Thread {
     private final List<String> keys;
     private final String lookupText;
-    private String result;
+    private List<String> result = new ArrayList<>();
     private final ConcurrentHashMap<String, String> rainbowTable;
 
     public LookupThread(List<String> keys, String lookupText, ConcurrentHashMap<String, String> rainbowTable) {
@@ -22,13 +23,13 @@ public class LookupThread extends Thread {
 //            System.out.println(rainbowTable.get(key).getClass());
             if (rainbowTable.get(key).equals(lookupText)) {
 //                System.out.println("wniosek: równe, WĄTEK NUMER: " + Thread.currentThread().threadId() + " ZWRACA RESULT = " + key);
-                result = key;
-                break;
+                result.add(key);
+//                break;
             }
         }
     }
 
-    public String getResult() {
+    public List<String> getResult() {
         return result;
     }
 }
